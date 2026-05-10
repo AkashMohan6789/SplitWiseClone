@@ -20,7 +20,7 @@ async function fetchAPI(endpoint, options = {}) {
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(err || 'API Error');
+     throw new Error(`${response.status} ${response.statusText} ${err || 'API Error'}`);
   }
 
   // Return JSON if it has content, else text
@@ -37,6 +37,9 @@ function render() {
   const app = document.getElementById('app');
   if (state.token) {
     app.innerHTML = renderDashboard();
+    if (state.activeTab === 'friends') {
+      loadFriends();
+    }
   } else {
     app.innerHTML = renderAuth();
   }
@@ -134,10 +137,27 @@ function renderFriendsTab() {
   return `
     <div class="flex-between" style="margin-bottom: 1.5rem;">
       <h3>Friends List</h3>
-      <button class="btn" onclick="alert('Not implemented yet!')">Add Friend</button>
+      <button class="btn" onclick="showAddFriendModal()">Add Friend</button>
     </div>
-    <div class="text-center" style="padding: 2rem 0; color: var(--text-muted);">
-      <p>You have not added any friends yet.</p>
+    <div id="friends-list">
+      <div class="text-center" style="padding: 2rem 0; color: var(--text-muted);">
+        <p>Loading friends...</p>
+      </div>
+    </div>
+    <div id="add-friend-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Add Friend</h3>
+          <span class="close" onclick="hideAddFriendModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+          <div class="input-group">
+            <label>Search Users</label>
+            <input type="text" id="friend-search" placeholder="Enter name or email" oninput="searchUsers()">
+          </div>
+          <div id="search-results" style="margin-top: 1rem;"></div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -212,6 +232,105 @@ function changeCurrency(e) {
 function switchTab(tab) {
   state.activeTab = tab;
   render();
+  if (tab === 'friends') {
+    loadFriends();
+  }
+}
+
+// --- Friends Functions ---
+async function loadFriends() {
+  try {
+    const friends = await fetchAPI('/friends');
+    const friendsList = document.getElementById('friends-list');
+    
+    if (friends.length === 0) {
+      friendsList.innerHTML = `
+        <div class="text-center" style="padding: 2rem 0; color: var(--text-muted);">
+          <p>You have not added any friends yet.</p>
+        </div>
+      `;
+    } else {
+      friendsList.innerHTML = friends.map(friend => `
+        <div class="friend-item" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 0.5rem;">
+          <div>
+            <h4 style="margin: 0; color: var(--text-main);">${friend.name}</h4>
+            <p style="margin: 0.25rem 0 0 0; color: var(--text-muted); font-size: 0.875rem;">${friend.email}</p>
+          </div>
+          <button class="btn btn-secondary" onclick="removeFriend(${friend.id})" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">Remove</button>
+        </div>
+      `).join('');
+    }
+  } catch (err) {
+    document.getElementById('friends-list').innerHTML = `
+      <div class="text-center" style="padding: 2rem 0; color: var(--text-danger);">
+        <p>Failed to load friends: ${err.message}</p>
+      </div>
+    `;
+  }
+}
+
+function showAddFriendModal() {
+  document.getElementById('add-friend-modal').style.display = 'block';
+  document.getElementById('friend-search').value = '';
+  document.getElementById('search-results').innerHTML = '';
+}
+
+function hideAddFriendModal() {
+  document.getElementById('add-friend-modal').style.display = 'none';
+}
+
+async function searchUsers() {
+  const query = document.getElementById('friend-search').value.trim();
+  if (query.length < 2) {
+    document.getElementById('search-results').innerHTML = '';
+    return;
+  }
+
+  try {
+    const users = await fetchAPI(`/friends/search?query=${encodeURIComponent(query)}`);
+    const searchResults = document.getElementById('search-results');
+    
+    if (users.length === 0) {
+      searchResults.innerHTML = '<p style="color: var(--text-muted);">No users found</p>';
+    } else {
+      searchResults.innerHTML = users.map(user => `
+        <div class="user-item" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 0.25rem;">
+          <div>
+            <span style="font-weight: 500; color: var(--text-main);">${user.name}</span>
+            <span style="color: var(--text-muted); font-size: 0.875rem;"> (${user.email})</span>
+          </div>
+          <button class="btn" onclick="addFriend(${user.id})" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">Add</button>
+        </div>
+      `).join('');
+    }
+  } catch (err) {
+    document.getElementById('search-results').innerHTML = `<p style="color: var(--text-danger);">Search failed: ${err.message}</p>`;
+  }
+}
+
+async function addFriend(friendId) {
+  try {
+    await fetchAPI(`/friends/${friendId}`, { method: 'POST' });
+    hideAddFriendModal();
+    loadFriends();
+    alert('Friend added successfully!');
+  } catch (err) {
+    alert(`Failed to add friend: ${err.message}`);
+  }
+}
+
+async function removeFriend(friendId) {
+  if (!confirm('Are you sure you want to remove this friend?')) {
+    return;
+  }
+
+  try {
+    await fetchAPI(`/friends/${friendId}`, { method: 'DELETE' });
+    loadFriends();
+    alert('Friend removed successfully!');
+  } catch (err) {
+    alert(`Failed to remove friend: ${err.message}`);
+  }
 }
 
 // Init
